@@ -4,7 +4,7 @@ pipeline {
   environment {
     DISCORD_WEBHOOK = credentials('discord_webhook')
     // ★★★ 請將這裡改成你的 Docker Hub 帳號 (不是 GitHub 帳號) ★★★
-    DOCKER_USER = 'REPLACE_WITH_YOUR_DOCKER_HUB_USERNAME' 
+    DOCKER_USER = 'haaaaaasi' 
     // 引用剛剛建立的憑證 (ID 必須是 docker-hub-credentials)
     DOCKER_CREDS = credentials('docker-hub-credentials')
     
