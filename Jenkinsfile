@@ -17,7 +17,7 @@ pipeline {
       }
     }
 
-    // Part 1: 靜態分析 (所有分支都要跑) [cite: 25]
+    [cite_start]// Part 1: 靜態分析 (所有分支都要跑) [cite: 25]
     stage('Static Analysis') {
       steps {
         script {
@@ -40,7 +40,7 @@ pipeline {
       }
     }
 
-    // Part 2: Staging 環境部署 (只在 dev 分支執行) [cite: 42]
+    [cite_start]// Part 2: Staging 環境部署 (只在 dev 分支執行) [cite: 42]
     stage('Build & Deploy Staging') {
       when {
         branch 'dev'
@@ -48,7 +48,7 @@ pipeline {
       steps {
         script {
           echo "--- Starting Staging Deployment ---"
-          def imageTag = "${env.DOCKER_USER}/myapp:dev-${env.BUILD_NUMBER}" // [cite: 45]
+          [cite_start]def imageTag = "${env.DOCKER_USER}/myapp:dev-${env.BUILD_NUMBER}" // [cite: 45]
           
           sh "echo $DOCKER_CREDS_PSW | docker login -u $DOCKER_CREDS_USR --password-stdin"
           
@@ -58,24 +58,24 @@ pipeline {
             COPY . .
             RUN npm install --production
             EXPOSE 8080
-            CMD ["node", "app.js"]
+            CMD ["npm", "start"]
           '''
           
-          sh "docker build -t ${imageTag} ." // [cite: 47]
+          sh "docker build -t ${imageTag} ." [cite_start]// [cite: 47]
           sh "docker push ${imageTag}"
           
-          sh "docker rm -f dev-app || true" // [cite: 48]
-          sh "docker run -d -p 8081:8080 --name dev-app ${imageTag}" // [cite: 49]
+          [cite_start]sh "docker rm -f dev-app || true" // [cite: 48]
+          [cite_start]sh "docker run -d -p 8081:8080 --name dev-app ${imageTag}" // [cite: 49]
           
           // 嘗試獲取容器 IP 進行內部驗證，解決 localhost 連線失敗問題
           sleep 5
           def containerIp = sh(script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' dev-app", returnStdout: true).trim()
-          sh "curl -f http://${containerIp}:8080/health || echo 'Health check warning'" // [cite: 50]
+          [cite_start]sh "curl -f http://${containerIp}:8080/health || echo 'Health check warning'" // [cite: 50]
         }
       }
     }
 
-    // Part 3: Production GitOps Promotion (只在 main 分支執行) [cite: 51]
+    [cite_start]// Part 3: Production GitOps Promotion (只在 main 分支執行) [cite: 51]
     stage('GitOps Promotion') {
       when {
         branch 'main'
@@ -84,13 +84,13 @@ pipeline {
         script {
           echo "--- Starting GitOps Promotion ---"
           
-          // 1. 讀取 deploy.config 檔案 [cite: 59]
+          [cite_start]// 1. 讀取 deploy.config 檔案 [cite: 59]
           // 如果檔案不存在會報錯，這是 GitOps 的核心保護機制
           def targetTag = readFile('deploy.config').trim()
           echo "Target Version from Git: ${targetTag}"
           
           def sourceImage = "${env.DOCKER_USER}/myapp:${targetTag}"
-          def prodImage = "${env.DOCKER_USER}/myapp:prod-${env.BUILD_NUMBER}" // [cite: 61]
+          [cite_start]def prodImage = "${env.DOCKER_USER}/myapp:prod-${env.BUILD_NUMBER}" // [cite: 61]
 
           sh "echo $DOCKER_CREDS_PSW | docker login -u $DOCKER_CREDS_USR --password-stdin"
 
@@ -100,7 +100,7 @@ pipeline {
           sh "docker push ${prodImage}"
 
           // 3. Deploy Production (Port 8082) 
-          sh "docker rm -f prod-app || true" // [cite: 64]
+          [cite_start]sh "docker rm -f prod-app || true" // [cite: 64]
           sh "docker run -d -p 8082:8080 --name prod-app ${prodImage}"
           
           // 4. Verify
