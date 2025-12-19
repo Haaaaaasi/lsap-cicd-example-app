@@ -1,6 +1,11 @@
 pipeline {
   agent any
 
+  // 關鍵修正 1：告訴 Jenkins 不要自動 Checkout，避免與後面的步驟衝突
+  options {
+    skipDefaultCheckout()
+  }
+
   environment {
     DISCORD_WEBHOOK = credentials('discord_webhook')
     YOUR_NAME = '潘俊諺'
@@ -8,22 +13,35 @@ pipeline {
   }
 
   stages {
-    // 1. 加回 Checkout 階段
-    // 之前因為 API 限制報錯，但為了要有 package.json，這一步是必須的。
+    stage('Clean Workspace') {
+      steps {
+        // 關鍵修正 2：確保工作區是乾淨的，刪除上一殘留的爛檔案
+        // 這相當於 rm -rf *
+        deleteDir() 
+      }
+    }
+
     stage('Checkout') {
       steps {
-        checkout scm
+        script {
+           // 關鍵修正 3：手動執行 Checkout
+           // 因為我們關掉了 skipDefaultCheckout，這一步現在是唯一的 Git 操作
+           checkout scm
+           
+           // 確認檔案真的有抓下來
+           sh 'ls -la' 
+        }
       }
     }
 
     stage('Static Analysis') {
       steps {
         script {
-          // 2. 為了 Debug，再次列出檔案，確認這次有抓到 package.json
-          sh 'ls -la'
-          
-          // 3. 執行 Docker 任務
-          // 這裡的 $(pwd) 會對應到剛剛 checkout 下來的程式碼目錄
+          // 再次檢查 package.json 是否存在 (雙重確認)
+          sh 'ls -la package.json || echo "Still missing package.json?"'
+
+          // 執行 Docker 任務
+          // 注意：現在 Workspace 應該是乾淨且包含代碼的
           sh """
             docker run --rm -v \$(pwd):/app -w /app node:18-alpine \
             sh -c 'npm install && npm run lint'
@@ -34,10 +52,8 @@ pipeline {
   }
 
   post {
-    // 無論成功或失敗都發送通知
     always { 
       script {
-        // 嘗試抓取 Git URL，如果環境變數是 null，使用預設值 (避免 Discord 顯示 null)
         def repoUrl = env.GIT_URL ?: 'https://github.com/Haaaaaasi/lsap-cicd-example-app.git'
         
         def errorMsg = """
