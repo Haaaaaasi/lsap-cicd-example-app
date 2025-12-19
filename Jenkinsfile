@@ -3,9 +3,7 @@ pipeline {
 
   environment {
     DISCORD_WEBHOOK = credentials('discord_webhook')
-    // ★★★ 請將這裡改成你的 Docker Hub 帳號 (不是 GitHub 帳號) ★★★
     DOCKER_USER = 'haaaaaasi' 
-    // 引用剛剛建立的憑證 (ID 必須是 docker-hub-credentials)
     DOCKER_CREDS = credentials('docker-hub-credentials')
     
     YOUR_NAME = '潘俊諺'
@@ -19,12 +17,11 @@ pipeline {
       }
     }
 
-    // Part 1: 靜態分析 (使用 Docker Build 方式，解決路徑問題)
+    // Part 1: 靜態分析 (所有分支都要跑) [cite: 25]
     stage('Static Analysis') {
       steps {
         script {
           echo "--- Starting Static Analysis ---"
-          // 動態產生 Lint 用的 Dockerfile
           writeFile file: 'Dockerfile.lint', text: '''
             FROM node:18-alpine
             WORKDIR /app
@@ -32,7 +29,6 @@ pipeline {
             RUN npm install
             CMD ["npm", "run", "lint"]
           '''
-          // 建置並執行檢查
           sh 'docker build -t lint-image -f Dockerfile.lint .'
           sh 'docker run --rm lint-image'
           sh 'docker rmi lint-image'
@@ -40,7 +36,7 @@ pipeline {
       }
     }
 
-    // Part 2: Staging 環境部署 (只在 dev 分支執行)
+    // Part 2: Staging 環境部署 (只在 dev 分支執行) [cite: 42]
     stage('Build & Deploy Staging') {
       when {
         branch 'dev'
@@ -48,12 +44,10 @@ pipeline {
       steps {
         script {
           echo "--- Starting Staging Deployment ---"
-          def imageTag = "${env.DOCKER_USER}/myapp:dev-${env.BUILD_NUMBER}"
+          def imageTag = "${env.DOCKER_USER}/myapp:dev-${env.BUILD_NUMBER}" // [cite: 45]
           
-          // 1. 登入 Docker Hub
           sh "echo $DOCKER_CREDS_PSW | docker login -u $DOCKER_CREDS_USR --password-stdin"
           
-          // 2. 建立部署用的 Dockerfile (如果專案根目錄沒有，手動產生一個)
           writeFile file: 'Dockerfile', text: '''
             FROM node:18-alpine
             WORKDIR /app
@@ -63,20 +57,52 @@ pipeline {
             CMD ["node", "app.js"]
           '''
           
-          // 3. Build & Push Image
-          sh "docker build -t ${imageTag} ."
+          sh "docker build -t ${imageTag} ." // [cite: 47]
           sh "docker push ${imageTag}"
           
-          // 4. 清理舊容器 (如果存在)
-          // || true 代表如果容器不存在也不要報錯
-          sh "docker rm -f dev-app || true"
+          sh "docker rm -f dev-app || true" // [cite: 48]
+          sh "docker run -d -p 8081:8080 --name dev-app ${imageTag}" // [cite: 49]
           
-          // 5. 部署容器 (對應 Host Port 8081)
-          sh "docker run -d -p 8081:8080 --name dev-app ${imageTag}"
-          
-          // 6. 驗證服務
+          // 嘗試獲取容器 IP 進行內部驗證，解決 localhost 連線失敗問題
           sleep 5
-          sh "curl -f http://localhost:8081/health || echo 'Health check warning'"
+          def containerIp = sh(script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' dev-app", returnStdout: true).trim()
+          sh "curl -f http://${containerIp}:8080/health || echo 'Health check warning'" // [cite: 50]
+        }
+      }
+    }
+
+    // Part 3: Production GitOps Promotion (只在 main 分支執行) [cite: 51]
+    stage('GitOps Promotion') {
+      when {
+        branch 'main'
+      }
+      steps {
+        script {
+          echo "--- Starting GitOps Promotion ---"
+          
+          // 1. 讀取 deploy.config 檔案 [cite: 59]
+          // 如果檔案不存在會報錯，這是 GitOps 的核心保護機制
+          def targetTag = readFile('deploy.config').trim()
+          echo "Target Version from Git: ${targetTag}"
+          
+          def sourceImage = "${env.DOCKER_USER}/myapp:${targetTag}"
+          def prodImage = "${env.DOCKER_USER}/myapp:prod-${env.BUILD_NUMBER}" // [cite: 61]
+
+          sh "echo $DOCKER_CREDS_PSW | docker login -u $DOCKER_CREDS_USR --password-stdin"
+
+          // 2. Artifact Promotion (Pull -> Retag -> Push) 
+          sh "docker pull ${sourceImage}"
+          sh "docker tag ${sourceImage} ${prodImage}"
+          sh "docker push ${prodImage}"
+
+          // 3. Deploy Production (Port 8082) 
+          sh "docker rm -f prod-app || true" // [cite: 64]
+          sh "docker run -d -p 8082:8080 --name prod-app ${prodImage}"
+          
+          // 4. Verify
+          sleep 5
+          def containerIp = sh(script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' prod-app", returnStdout: true).trim()
+          sh "curl -f http://${containerIp}:8080/health || echo 'Health check warning'"
         }
       }
     }
