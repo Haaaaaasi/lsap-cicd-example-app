@@ -8,18 +8,22 @@ pipeline {
   }
 
   stages {
-    // 1. 移除了 'Checkout' stage
-    // Declarative Pipeline 預設會自動在 agent any 之後執行 checkout scm
-    // 不需要手動再寫一次，這樣可以解決 "Could not determine exact tip revision" 錯誤
+    // 1. 加回 Checkout 階段
+    // 之前因為 API 限制報錯，但為了要有 package.json，這一步是必須的。
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
 
     stage('Static Analysis') {
       steps {
         script {
-          // 2. 確保目錄存在 (有時候自動 checkout 會有權限問題，先印出來確認)
+          // 2. 為了 Debug，再次列出檔案，確認這次有抓到 package.json
           sh 'ls -la'
           
-          // 3. 使用手動 Docker 指令 (因為你的 Jenkins 沒裝 Docker Pipeline plugin)
-          // 這裡加上 --entrypoint 確保不會因為 image 預設指令卡住
+          // 3. 執行 Docker 任務
+          // 這裡的 $(pwd) 會對應到剛剛 checkout 下來的程式碼目錄
           sh """
             docker run --rm -v \$(pwd):/app -w /app node:18-alpine \
             sh -c 'npm install && npm run lint'
@@ -30,13 +34,14 @@ pipeline {
   }
 
   post {
-    failure {
+    // 無論成功或失敗都發送通知
+    always { 
       script {
-        // 嘗試抓取 Git URL，如果環境變數是 null，嘗試用 scm 設定抓取 (fallback)
+        // 嘗試抓取 Git URL，如果環境變數是 null，使用預設值 (避免 Discord 顯示 null)
         def repoUrl = env.GIT_URL ?: 'https://github.com/Haaaaaasi/lsap-cicd-example-app.git'
         
         def errorMsg = """
-❌ Build Failed
+${currentBuild.currentResult == 'SUCCESS' ? '✅ Build Success' : '❌ Build Failed'}
 Name: ${env.YOUR_NAME}
 Student ID: ${env.YOUR_STUDENT_ID}
 Job: ${env.JOB_NAME}
