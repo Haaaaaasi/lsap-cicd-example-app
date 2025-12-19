@@ -71,7 +71,7 @@ pipeline {
           sleep 5
           // ★★★ 修正點 2: Curl 驗證也要改為 3000 ★★★
           def containerIp = sh(script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' dev-app", returnStdout: true).trim()
-          sh "curl -f http://${containerIp}:3000/health || echo 'Health check warning'"
+          sh "curl -f http://${containerIp}:3000/ || echo 'Health check warning'"
         }
       }
     }
@@ -105,7 +105,7 @@ pipeline {
           sleep 5
           // ★★★ 修正點 4: Curl 驗證也要改為 3000 ★★★
           def containerIp = sh(script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' prod-app", returnStdout: true).trim()
-          sh "curl -f http://${containerIp}:3000/health || echo 'Health check warning'"
+          sh "curl -f http://${containerIp}:3000/ || echo 'Health check warning'"
         }
       }
     }
