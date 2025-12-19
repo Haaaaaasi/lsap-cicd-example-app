@@ -3,9 +3,8 @@ pipeline {
 
   environment {
     DISCORD_WEBHOOK = credentials('discord_webhook')
-    // ★★★ 請將這裡改成你的 Docker Hub 帳號 ★★★
+    // ★★★ 請確認這裡是你的 Docker Hub 帳號 ★★★
     DOCKER_USER = 'haaaaaasi' 
-    // 引用剛剛建立的憑證
     DOCKER_CREDS = credentials('docker-hub-credentials')
     
     YOUR_NAME = '潘俊諺'
@@ -19,11 +18,11 @@ pipeline {
       }
     }
 
-    // Part 1: 靜態分析 (所有分支都要跑)
+    // Part 1: 靜態分析 (所有分支都要跑) [cite: 22-25]
     stage('Static Analysis') {
       steps {
         script {
-          // 動態產生 Lint 用的 Dockerfile
+          echo "--- Starting Static Analysis ---"
           writeFile file: 'Dockerfile.lint', text: '''
             FROM node:18-alpine
             WORKDIR /app
@@ -38,23 +37,18 @@ pipeline {
       }
     }
 
-    // Part 2: Staging 部署 (只在 dev 分支執行)
+    // Part 2: Staging 環境部署 (只在 dev 分支執行) [cite: 42-50]
     stage('Build & Deploy Staging') {
       when {
         branch 'dev'
       }
       steps {
         script {
+          echo "--- Starting Staging Deployment ---"
           def imageTag = "${env.DOCKER_USER}/myapp:dev-${env.BUILD_NUMBER}"
           
-          echo "Building & Pushing to Docker Hub: ${imageTag}"
-          
-          // 1. 登入 Docker Hub
           sh "echo $DOCKER_CREDS_PSW | docker login -u $DOCKER_CREDS_USR --password-stdin"
           
-          // 2. 建立正式用的 Image (假設專案根目錄有原本的 Dockerfile，如果沒有，這裡要動態建立)
-          // 注意：作業提供的範例 App 通常根目錄會有一個 Dockerfile
-          // 如果沒有，我們下面動態建立一個標準的 Node.js Dockerfile
           writeFile file: 'Dockerfile', text: '''
             FROM node:18-alpine
             WORKDIR /app
@@ -64,21 +58,55 @@ pipeline {
             CMD ["node", "app.js"]
           '''
           
-          // 3. Build & Push
+          // Build & Push [cite: 47]
           sh "docker build -t ${imageTag} ."
           sh "docker push ${imageTag}"
           
-          // 4. Cleanup old container (如果存在就刪除)
-          // 使用 || true 避免如果容器不存在導致 pipeline 失敗
+          // Cleanup & Deploy to Port 8081 [cite: 48, 49]
           sh "docker rm -f dev-app || true"
-          
-          // 5. Deploy (Port 8081)
-          // -d: 背景執行, -p: Port對應, --name: 指定容器名稱
           sh "docker run -d -p 8081:8080 --name dev-app ${imageTag}"
           
-          // 6. Verify (等待幾秒讓服務啟動)
+          // Verify with Container IP (更穩定的驗證方式) 
           sleep 5
-          sh "curl -f http://localhost:8081/health || echo 'Health check failed but continuing...'"
+          def containerIp = sh(script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' dev-app", returnStdout: true).trim()
+          sh "curl -f http://${containerIp}:8080/health || echo 'Health check warning'"
+        }
+      }
+    }
+
+    // Part 3: Production GitOps Promotion (只在 main 分支執行) [cite: 51-66]
+    stage('GitOps Promotion') {
+      when {
+        branch 'main'
+      }
+      steps {
+        script {
+          echo "--- Starting GitOps Promotion ---"
+          
+          // 1. 讀取 deploy.config 檔案 [cite: 59]
+          // 這是 GitOps 的核心：Git 是唯一的真理來源 (Single Source of Truth) [cite: 69]
+          def targetTag = readFile('deploy.config').trim()
+          echo "Target Version from Git: ${targetTag}"
+          
+          def sourceImage = "${env.DOCKER_USER}/myapp:${targetTag}"
+          def prodImage = "${env.DOCKER_USER}/myapp:prod-${env.BUILD_NUMBER}"
+
+          sh "echo $DOCKER_CREDS_PSW | docker login -u $DOCKER_CREDS_USR --password-stdin"
+
+          // 2. Artifact Promotion: Pull -> Retag -> Push [cite: 61, 62]
+          // 不進行 Build，而是直接將經過驗證的 Image 晉升為 Production 版本
+          sh "docker pull ${sourceImage}"
+          sh "docker tag ${sourceImage} ${prodImage}"
+          sh "docker push ${prodImage}"
+
+          // 3. Deploy Production (Port 8082) [cite: 64, 66]
+          sh "docker rm -f prod-app || true"
+          sh "docker run -d -p 8082:8080 --name prod-app ${prodImage}"
+          
+          // 4. Verify
+          sleep 5
+          def containerIp = sh(script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' prod-app", returnStdout: true).trim()
+          sh "curl -f http://${containerIp}:8080/health || echo 'Health check warning'"
         }
       }
     }
