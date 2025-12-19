@@ -3,7 +3,6 @@ pipeline {
 
   environment {
     DISCORD_WEBHOOK = credentials('discord_webhook')
-    // 請確認這裡是你的 Docker Hub 帳號
     DOCKER_USER = 'haaaaaasi' 
     DOCKER_CREDS = credentials('docker-hub-credentials')
     
@@ -57,7 +56,7 @@ pipeline {
             WORKDIR /app
             COPY . .
             RUN npm install --production
-            EXPOSE 8080
+            EXPOSE 3000
             CMD ["npm", "start"]
           '''
           
@@ -65,11 +64,14 @@ pipeline {
           sh "docker push ${imageTag}"
           
           sh "docker rm -f dev-app || true"
-          sh "docker run -d -p 8081:8080 --name dev-app ${imageTag}"
+          
+          // ★★★ 修正點 1: 內部 Port 改為 3000 ★★★
+          sh "docker run -d -p 8081:3000 --name dev-app ${imageTag}"
           
           sleep 5
+          // ★★★ 修正點 2: Curl 驗證也要改為 3000 ★★★
           def containerIp = sh(script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' dev-app", returnStdout: true).trim()
-          sh "curl -f http://${containerIp}:8080/health || echo 'Health check warning'"
+          sh "curl -f http://${containerIp}:3000/health || echo 'Health check warning'"
         }
       }
     }
@@ -96,11 +98,14 @@ pipeline {
           sh "docker push ${prodImage}"
 
           sh "docker rm -f prod-app || true"
-          sh "docker run -d -p 8082:8080 --name prod-app ${prodImage}"
+          
+          // ★★★ 修正點 3: Production 也要改內部 Port 為 3000 ★★★
+          sh "docker run -d -p 8082:3000 --name prod-app ${prodImage}"
           
           sleep 5
+          // ★★★ 修正點 4: Curl 驗證也要改為 3000 ★★★
           def containerIp = sh(script: "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' prod-app", returnStdout: true).trim()
-          sh "curl -f http://${containerIp}:8080/health || echo 'Health check warning'"
+          sh "curl -f http://${containerIp}:3000/health || echo 'Health check warning'"
         }
       }
     }
