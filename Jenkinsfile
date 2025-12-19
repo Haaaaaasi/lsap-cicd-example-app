@@ -22,6 +22,9 @@ pipeline {
       steps {
         script {
           echo "--- Starting Static Analysis ---"
+          // 給它一個獨一無二的名字，避免 dev 和 main 打架
+          def lintImageTag = "lint-image-${env.BUILD_NUMBER}"
+
           writeFile file: 'Dockerfile.lint', text: '''
             FROM node:18-alpine
             WORKDIR /app
@@ -29,9 +32,10 @@ pipeline {
             RUN npm install
             CMD ["npm", "run", "lint"]
           '''
-          sh 'docker build -t lint-image -f Dockerfile.lint .'
-          sh 'docker run --rm lint-image'
-          sh 'docker rmi lint-image'
+          // 使用變數
+          sh "docker build -t ${lintImageTag} -f Dockerfile.lint ."
+          sh "docker run --rm ${lintImageTag}"
+          sh "docker rmi ${lintImageTag}"
         }
       }
     }
